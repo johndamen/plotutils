@@ -331,7 +331,7 @@ class AxPositioningEditor(QtWidgets.QMainWindow):
         for name, a in self.axes.items():
             a.format_placeholder(name)
             self.figure.add_axes(a)
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
         if posfields:
             self.axfields.clear()
