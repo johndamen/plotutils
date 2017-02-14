@@ -1,11 +1,16 @@
 from __future__ import print_function, division
-from PyQt4 import QtGui, QtCore
+from PyQt5 import QtGui, QtCore, QtWidgets
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from collections import OrderedDict
 from functools import partial
 import math
+import multiprocessing as mp
+import subprocess as sp
+import os
+import pickle
+import sys
 
 
 class PositioningAxes(Axes):
@@ -178,8 +183,7 @@ class PositioningAxes(Axes):
         self.scatter([ax], [ay], marker='o', transform=self.transAxes, color=(.5, .5, .9), s=200, clip_on=False, zorder=1)
 
 
-
-class AxPositioningEditor(QtGui.QMainWindow):
+class AxPositioningEditor(QtWidgets.QMainWindow):
 
     position_dict = OrderedDict([
         ('ll', 'lower left'),
@@ -236,7 +240,7 @@ class AxPositioningEditor(QtGui.QMainWindow):
         boundstr = ''
         for n, a in self.axes.items():
             kwargs = dict(zip(['xll', 'yll', 'w', 'h'], a.bounds), name=n)
-            boundstr += '    ({xll:.2f}, {yll:.2f}, {w:.2f}, {h:.2f})  # {name}\n'.format(**kwargs)
+            boundstr += '    ({xll:.3f}, {yll:.3f}, {w:.3f}, {h:.3f})  # {name}\n'.format(**kwargs)
         return 'bounds = [\n'+boundstr+']'
 
     def draw_axes(self, event):
@@ -246,29 +250,28 @@ class AxPositioningEditor(QtGui.QMainWindow):
             self.pointing_axes = False
 
     def build(self):
-        w = QtGui.QWidget()
+        w = QtWidgets.QWidget()
         self.setCentralWidget(w)
-        self.layout = QtGui.QHBoxLayout(w)
+        self.layout = QtWidgets.QHBoxLayout(w)
         self.layout.setSpacing(5)
 
-        canvas_layout = QtGui.QVBoxLayout()
+        canvas_layout = QtWidgets.QVBoxLayout()
         self.layout.addLayout(canvas_layout)
-
         canvas_layout.addWidget(self.canvas)
-        canvas_layout.addItem(QtGui.QSpacerItem(
-            0, 0, QtGui.QSizePolicy.Maximum, QtGui.QSizePolicy.Expanding))
+        canvas_layout.addItem(QtWidgets.QSpacerItem(
+            0, 0, QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Expanding))
 
-        self.edit_axes_layout = QtGui.QVBoxLayout()
+        self.edit_axes_layout = QtWidgets.QVBoxLayout()
         self.layout.addLayout(self.edit_axes_layout)
 
-        self.layout.addItem(QtGui.QSpacerItem(0, 0, QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Maximum))
+        self.layout.addItem(QtWidgets.QSpacerItem(0, 0, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum))
 
-        self.position_group = QtGui.QGroupBox()
+        self.position_group = QtWidgets.QGroupBox()
         self.edit_axes_layout.addWidget(self.position_group)
-        group_layout = QtGui.QVBoxLayout(self.position_group)
+        group_layout = QtWidgets.QVBoxLayout(self.position_group)
         radio_buttons = dict()
         for pos, name in self.position_dict.items():
-            radio_buttons[pos] = rw = QtGui.QRadioButton(name)
+            radio_buttons[pos] = rw = QtWidgets.QRadioButton(name)
             rw.clicked.connect(partial(self.update_anchor, pos))
             group_layout.addWidget(rw)
 
@@ -288,13 +291,13 @@ class AxPositioningEditor(QtGui.QMainWindow):
         self.add_axes_button.clicked.connect(self.add_axes_clicked)
         self.edit_axes_layout.addWidget(self.add_axes_button)
 
-        self.edit_axes_layout.addItem(QtGui.QSpacerItem(
-            0, 0, QtGui.QSizePolicy.Maximum, QtGui.QSizePolicy.Expanding))
+        self.edit_axes_layout.addItem(QtWidgets.QSpacerItem(
+            0, 0, QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Expanding))
 
         radio_buttons[self.anchor].click()
 
     def add_axes_clicked(self):
-        QtGui.QMessageBox.information(self, 'New axes',
+        QtWidgets.QMessageBox.information(self, 'New axes',
                                       'Click on the canvas to position a new axes')
         self.pointing_axes = True
 
@@ -340,7 +343,7 @@ class AxPositioningEditor(QtGui.QMainWindow):
         self.draw()
 
 
-class AxPositionFieldBox(QtGui.QGroupBox):
+class AxPositionFieldBox(QtWidgets.QGroupBox):
 
     changed = QtCore.pyqtSignal()
     deleted = QtCore.pyqtSignal(object)
@@ -352,7 +355,7 @@ class AxPositionFieldBox(QtGui.QGroupBox):
         self.axes = axes
         self.axfields = dict()
 
-        self.layout = QtGui.QVBoxLayout(self)
+        self.layout = QtWidgets.QVBoxLayout(self)
         self.layout.setSpacing(5)
         self.layout.setContentsMargins(0, 0, 0, 0)
 
@@ -380,14 +383,14 @@ class AxPositionFieldBox(QtGui.QGroupBox):
             f.update_fields()
 
 
-class AddAxesButton(QtGui.QPushButton):
+class AddAxesButton(QtWidgets.QPushButton):
 
     def __init__(self):
         super().__init__('Add new axes')
         self.setFlat(True)
 
 
-class AxPositionField(QtGui.QWidget):
+class AxPositionField(QtWidgets.QWidget):
 
     changed = QtCore.pyqtSignal()
     deleted = QtCore.pyqtSignal(object)
@@ -401,10 +404,10 @@ class AxPositionField(QtGui.QWidget):
         self.build()
 
     def build(self):
-        self.layout = QtGui.QHBoxLayout(self)
+        self.layout = QtWidgets.QHBoxLayout(self)
         self.layout.setSpacing(5)
         self.layout.setContentsMargins(0, 0, 0, 0)
-        label = QtGui.QLabel(self.name+': ')
+        label = QtWidgets.QLabel(self.name+': ')
         self.layout.addWidget(label)
 
         self.fields = dict()
@@ -417,7 +420,7 @@ class AxPositionField(QtGui.QWidget):
         f.changed.connect(partial(self.update_axes_aspect, 'aspect'))
         self.layout.addWidget(f)
 
-        self.delete_button = QtGui.QPushButton('x')
+        self.delete_button = QtWidgets.QPushButton('x')
         self.delete_button.setFlat(True)
         self.delete_button.clicked.connect(self.delete_axes)
         self.layout.addWidget(self.delete_button)
@@ -446,7 +449,7 @@ class AxPositionField(QtGui.QWidget):
             w.deleteLater()
 
 
-class FloatField(QtGui.QLineEdit):
+class FloatField(QtWidgets.QLineEdit):
 
     changed = QtCore.pyqtSignal(float)
 
@@ -486,16 +489,16 @@ class FloatField(QtGui.QLineEdit):
         self.setText(self.fmt.format(self.val))
 
 
-class LabeledFloatField(QtGui.QWidget):
+class LabeledFloatField(QtWidgets.QWidget):
 
     changed = QtCore.pyqtSignal(float)
 
     def __init__(self, name, v, **kwargs):
         super().__init__()
-        l = QtGui.QHBoxLayout(self)
+        l = QtWidgets.QHBoxLayout(self)
         l.setSpacing(3)
         l.setContentsMargins(0, 0, 0, 0)
-        self.label = QtGui.QLabel(name)
+        self.label = QtWidgets.QLabel(name)
         l.addWidget(self.label)
         self.value_field = FloatField(v, **kwargs)
         l.addWidget(self.value_field)
@@ -514,25 +517,49 @@ class LabeledFloatField(QtGui.QWidget):
 
 
 
+# def _position_axes_window(figsize, bounds, **kwargs):
+    # app = QtGui.QApplication([])
+    # w = AxPositioningEditor(Figure(figsize=fig.get_size_inches()), bounds, **kwargs)
+    # w.show()
+
+    # try:
+    #     app.exec()
+    #     print(w.pycode_bounds())
+    #     pipe.send(w.get_bounds())
+    # finally:
+    # w.deleteLater()
+
+
+def _subprocess_open_window(*args, **kwargs):
+    loc, name = os.path.split(__file__)
+    p = sp.Popen(['python', '-m', name, 'window'], cwd=loc)
+    p.communicate(pickle.dump((args, kwargs)))
+    p.wait()
+
+
+def open_window(figsize, bounds, **kwargs):
+    if isinstance(figsize, Figure):
+        figsize = figsize.get_size_inches()
+    app = QtWidgets.QApplication([])
+    w = AxPositioningEditor(Figure(figsize=figsize), bounds, **kwargs)
+    w.show()
+
+    try:
+        app.exec()
+        print(w.pycode_bounds())
+        # sys.stdout.write(pickle.dump(w.get_bounds())+'\n')
+    finally:
+        w.deleteLater()
+
+
 def adjust_axes(fig, **kwargs):
     axes = fig.get_axes()
     bounds = [a.get_position().bounds for a in axes]
 
-    new_app = QtGui.QApplication.instance() is None
-    if new_app:
-        app = QtGui.QApplication([])
+    _subprocess_open_window(fig.get_size_inches(), bounds, **kwargs)
 
-    w = AxPositioningEditor(Figure(figsize=fig.get_size_inches()), bounds, **kwargs)
-    w.show()
+    newbounds = bounds
 
-    if new_app:
-        app.exec_()
-
-    w.deleteLater()
-
-    print(w.pycode_bounds())
-
-    newbounds = w.get_bounds()
     for a in axes[len(newbounds):]:
         fig.delaxes(a)
 
@@ -545,12 +572,42 @@ def adjust_axes(fig, **kwargs):
 
 
 if __name__ == '__main__':
-    from matplotlib import pyplot as plt
-    fig = plt.figure()
-    ax = plt.subplot(1, 2, 1)
-    ax = plt.subplot(2, 2, 2)
-    ax = plt.subplot(2, 2, 4)
 
-    adjust_axes(fig)
+    w, h = .26, .8
+    bounds = [
+        (.08, .10, w, h),
+        (.36, .10, w, h),
+        (.64, .10, w, h),
+        (.92, .10, .02, h)
+    ]
+    open_window((12, 4), bounds)
 
-    plt.show()
+
+    # import sys
+    # import pickle
+    # argv = sys.argv[1:]
+    # if argv and argv[0] == 'window':
+    #     figsize, bounds, kwargs = pickle.load(sys.stdin)
+    #     print(figsize, bounds, kwargs)
+    #     # app = QtGui.QApplication([])
+    #     # w = AxPositioningEditor(Figure(figsize=figsize), bounds, **kwargs)
+    #     # w.show()
+    #     #
+    #     # try:
+    #     #     app.exec()
+    #     #     for bnd in w.get_bounds():
+    #     #         s = '({:.3f}, {:.3f}, {:.3f}, {:.3f})\n'.format(*bnd)
+    #     #         sys.stdout.write(s)
+    #     # finally:
+    #     #     w.deleteLater()
+    # else:
+    #     # from matplotlib import pyplot as plt
+    #     # fig = plt.figure()
+    #     # ax = plt.subplot(1, 2, 1)
+    #     # ax = plt.subplot(2, 2, 2)
+    #     # ax = plt.subplot(2, 2, 4)
+    #     #
+    #     # adjust_axes(fig)
+    #
+    #
+    #     # plt.show()
