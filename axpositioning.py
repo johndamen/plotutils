@@ -6,8 +6,6 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from collections import OrderedDict
 from functools import partial
-import subprocess as sp
-import os
 
 
 class PositioningAxes(Axes):
