@@ -2,6 +2,7 @@ from __future__ import print_function, division
 from PyQt5 import QtGui, QtCore, QtWidgets
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from matplotlib.gridspec import GridSpec
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from collections import OrderedDict
 from functools import partial
@@ -246,7 +247,7 @@ class AxPositioningEditor(QtWidgets.QMainWindow):
     def draw_axes(self, event):
         if self.pointing_axes:
             x, y = self.figure.transFigure.inverted().transform((event.x, event.y))
-            self.add_axes(x, y)
+            self.add_axes_at_position(x, y)
             self.pointing_axes = False
 
     def build(self):
@@ -276,6 +277,7 @@ class AxPositioningEditor(QtWidgets.QMainWindow):
             group_layout.addWidget(rw)
 
         self.axfields = AxPositionFieldBox(self.axes)
+        self.axfields.setFixedWidth(400)
         self.axfields.changed.connect(self.draw)
         self.axfields.deleted.connect(self.delete_axes)
         self.edit_axes_layout.addWidget(self.axfields)
@@ -297,18 +299,32 @@ class AxPositioningEditor(QtWidgets.QMainWindow):
         radio_buttons[self.anchor].click()
 
     def add_axes_clicked(self):
-        QtWidgets.QMessageBox.information(self, 'New axes',
-                                      'Click on the canvas to position a new axes')
-        self.pointing_axes = True
+        w = NewAxesDialog(self.figure)
+        w.show()
+        w.exec_()
+        data = w.value.copy()
+        w.deleteLater()
+        self.pointing_axes = data.pop('click', False)
+        try:
+            self.add_axes(data['bounds'])
+        except KeyError:
+            pass
 
-    def add_axes(self, x, y):
-        axnames = list(self.axes.keys())
-        for i in range(50):
-            n = chr(65 + i)
-            if n not in axnames:
-                self.axes[n] = PositioningAxes(self.figure, [x - .3, y - .3, .4, .4], anchor=self.anchor)
-                self.draw(posfields=True)
-                return
+    def add_axes_at_position(self, x, y):
+        return self.add_axes([x - .2, y - .2, .4, .4])
+
+    def add_axes(self, bounds, n=None):
+        if n is None:
+            axnames = list(self.axes.keys())
+            for i in range(50):
+                n = chr(65 + i)
+                if n not in axnames:
+                    break
+            else:
+                raise ValueError('could not find unique axis name')
+
+        self.axes[n] = PositioningAxes(self.figure, bounds, anchor=self.anchor)
+        self.draw(posfields=True)
 
     def update_anchor(self, pos, clicked):
         if clicked:
@@ -449,17 +465,27 @@ class AxPositionField(QtWidgets.QWidget):
             w.deleteLater()
 
 
-class FloatField(QtWidgets.QLineEdit):
+class NumField(QtWidgets.QLineEdit):
 
-    changed = QtCore.pyqtSignal(float)
+    valtype = int
+    changed = QtCore.pyqtSignal(valtype)
+    fmt = '{}'
 
-    def __init__(self, v, fmt='{:.3f}', width=45):
+    def __init__(self, v, fmt=None, width=45):
         super().__init__()
-        self.fmt = fmt
-        self.val = float(v)
+        if fmt is not None:
+            self.fmt = fmt
+        self.val = self.cast(v)
         self.set_value(v)
         self.setFixedWidth(width)
         self.editingFinished.connect(self.check_change)
+        self.last_valid = self.val
+
+    def cast(self, v):
+        return self.valtype(v)
+
+    def format(self, v):
+        return self.fmt.format(v)
 
     def check_change(self):
         """
@@ -469,14 +495,17 @@ class FloatField(QtWidgets.QLineEdit):
         """
 
         # compare content to value
-        if self.text() == self.fmt.format(self.val):
+        if self.text() == self.format(self.val):
             return
         else:
             # update value
-            self.val = float(self.text())
-
-            # emit signal
-            self.changed.emit(self.val)
+            try:
+                self.val = self.cast(self.text())
+            except ValueError:
+                self.set_value(self.last_valid)
+            else:
+                # emit signal when casting was successful
+                self.changed.emit(self.val)
 
     def value(self):
         """return the value after checking for change"""
@@ -485,8 +514,22 @@ class FloatField(QtWidgets.QLineEdit):
 
     def set_value(self, v):
         """set a value as a float and update field"""
-        self.val = float(v)
-        self.setText(self.fmt.format(self.val))
+        self.val = self.cast(v)
+        self.setText(self.format(self.val))
+
+
+class IntField(NumField):
+
+    valtype = int
+    fmt = '{}'
+    changed = QtCore.pyqtSignal(valtype)
+
+
+class FloatField(NumField):
+
+    valtype = float
+    fmt = '{:.3f}'
+    changed = QtCore.pyqtSignal(valtype)
 
 
 class LabeledFloatField(QtWidgets.QWidget):
@@ -516,6 +559,71 @@ class LabeledFloatField(QtWidgets.QWidget):
         super().deleteLater()
 
 
+class NewAxesDialog(QtWidgets.QDialog):
+
+    FIELD_SPEC = OrderedDict()
+    FIELD_SPEC['nrows']  = dict(cls=IntField, value=1)
+    FIELD_SPEC['ncols']  = dict(cls=IntField, value=1)
+    FIELD_SPEC['row']    = dict(cls=IntField, value=0)
+    FIELD_SPEC['column'] = dict(cls=IntField, value=0)
+    FIELD_SPEC['left']   = dict(cls=FloatField, value=0.1)
+    FIELD_SPEC['bottom'] = dict(cls=FloatField, value=0.1)
+    FIELD_SPEC['right']  = dict(cls=FloatField, value=0.9)
+    FIELD_SPEC['top']    = dict(cls=FloatField, value=0.9)
+    FIELD_SPEC['wspace'] = dict(cls=FloatField, value=0.05)
+    FIELD_SPEC['hspace'] = dict(cls=FloatField, value=0.05)
+
+    def __init__(self, figure):
+        super().__init__()
+        self.layout = QtWidgets.QVBoxLayout(self)
+        self.click_button = QtWidgets.QPushButton('Click in axes')
+        self.click_button.clicked.connect(self.click_axes)
+        self.layout.addWidget(self.click_button)
+
+        hline = QtWidgets.QFrame()
+        hline.setFrameShape(QtWidgets.QFrame.HLine)
+        hline.setFrameShadow(QtWidgets.QFrame.Sunken)
+        self.layout.addWidget(hline)
+
+        gridform = QtWidgets.QFormLayout()
+        self.fields = dict()
+        for k, spec in self.FIELD_SPEC.items():
+            self.fields[k] = f = spec['cls'](spec['value'])
+            gridform.addRow(k, f)
+        self.layout.addLayout(gridform)
+
+        hline = QtWidgets.QFrame()
+        hline.setFrameShape(QtWidgets.QFrame.HLine)
+        hline.setFrameShadow(QtWidgets.QFrame.Sunken)
+        self.layout.addWidget(hline)
+
+        self.grid_button = QtWidgets.QPushButton('Add from grid')
+        self.grid_button.clicked.connect(self.add_from_grid)
+        self.layout.addWidget(self.grid_button)
+
+        self.figure = figure
+        self.value = dict()
+
+    def click_axes(self):
+        self.value['click'] = True
+        self.accept()
+
+    def add_from_grid(self):
+        data = dict()
+        for k, f in self.fields.items():
+            try:
+                v = f.value()
+            except ValueError:
+                QtWidgets.QErrorMessage().showMessage('Invalid value for {}'.format(k))
+                return
+            self.FIELD_SPEC[k]['value'] = v
+            if k in ('nrows', 'ncols', 'left', 'right', 'top', 'bottom', 'wspace', 'hspace'):
+                data[k] = v
+
+        gs = GridSpec(**data)
+        self.value['bounds'] = gs[self.fields['row'].value(),
+                                  self.fields['column'].value()].get_position(self.figure).bounds
+        self.accept()
 
 # def _position_axes_window(figsize, bounds, **kwargs):
     # app = QtGui.QApplication([])
@@ -574,40 +682,10 @@ def adjust_axes(fig, **kwargs):
 if __name__ == '__main__':
 
     w, h = .26, .8
-    bounds = [
-        (.08, .10, w, h),
-        (.36, .10, w, h),
-        (.64, .10, w, h),
-        (.92, .10, .02, h)
-    ]
-    open_window((12, 4), bounds)
-
-
-    # import sys
-    # import pickle
-    # argv = sys.argv[1:]
-    # if argv and argv[0] == 'window':
-    #     figsize, bounds, kwargs = pickle.load(sys.stdin)
-    #     print(figsize, bounds, kwargs)
-    #     # app = QtGui.QApplication([])
-    #     # w = AxPositioningEditor(Figure(figsize=figsize), bounds, **kwargs)
-    #     # w.show()
-    #     #
-    #     # try:
-    #     #     app.exec()
-    #     #     for bnd in w.get_bounds():
-    #     #         s = '({:.3f}, {:.3f}, {:.3f}, {:.3f})\n'.format(*bnd)
-    #     #         sys.stdout.write(s)
-    #     # finally:
-    #     #     w.deleteLater()
-    # else:
-    #     # from matplotlib import pyplot as plt
-    #     # fig = plt.figure()
-    #     # ax = plt.subplot(1, 2, 1)
-    #     # ax = plt.subplot(2, 2, 2)
-    #     # ax = plt.subplot(2, 2, 4)
-    #     #
-    #     # adjust_axes(fig)
-    #
-    #
-    #     # plt.show()
+    bounds = []
+    #     (.08, .10, w, h),
+    #     (.36, .10, w, h),
+    #     (.64, .10, w, h),
+    #     (.92, .10, .02, h)
+    # ]
+    open_window((12, 10), bounds)
