@@ -529,6 +529,9 @@ class MultiIntField(IntField):
 
     changed = QtCore.pyqtSignal(tuple)
 
+    def __init__(self, v, width=60):
+        super().__init__(v, width=width)
+
     def format(self, v):
         return ', '.join(map(str, v))
 
@@ -655,7 +658,14 @@ class NewAxesDialog(QtWidgets.QDialog):
             I = (I,)
         if isinstance(I, tuple):
             for i in I:
-                self.value['bounds'].append(gs[i].get_position(self.figure).bounds)
+                try:
+                    bnd = gs[i].get_position(self.figure).bounds
+                except IndexError as e:
+                    msg = QtWidgets.QMessageBox()
+                    msg.setText('Invalid grid index: {}'.format(e))
+                    msg.exec()
+                    return
+                self.value['bounds'].append(bnd)
         else:
             raise TypeError('invalid index type')
         self.accept()
