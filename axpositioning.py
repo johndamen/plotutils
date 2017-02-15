@@ -1,4 +1,3 @@
-from __future__ import print_function, division
 from PyQt5 import QtGui, QtCore, QtWidgets
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
@@ -6,9 +5,17 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from collections import OrderedDict
 from functools import partial
+import subprocess
+import sys
+import argparse
+import pickle
 
 
 class PositioningAxes(Axes):
+
+    """
+    Class for editing axes position
+    """
 
     _anchor_point = (0, 0)
 
@@ -177,6 +184,17 @@ class PositioningAxes(Axes):
         ax, ay = self._anchor_point
         self.scatter([ax], [ay], marker='o', transform=self.transAxes, color=(.5, .5, .9), s=200, clip_on=False, zorder=1)
 
+    def __str__(self):
+        return '<{} {}>'.format(self.__class__.__qualname__, self.bounds)
+
+"""
+Gui elements
+
+- AxpositioningEditor
+- AxPositionFieldBox
+...
+"""
+
 
 class AxPositioningEditor(QtWidgets.QMainWindow):
 
@@ -275,12 +293,6 @@ class AxPositioningEditor(QtWidgets.QMainWindow):
         self.axfields.changed.connect(self.draw)
         self.axfields.deleted.connect(self.delete_axes)
         self.edit_axes_layout.addWidget(self.axfields)
-        # self.axfields = dict()
-        # for name, a in self.axes.items():
-        #     self.axfields[name] = w = AxPositionEditor(name, a)
-        #     w.changed.connect(self.draw)
-        #     w.deleted.connect(self.delete_axes)
-        #     self.edit_axes_layout.addWidget(w)
 
         self.add_axes_button = AddAxesButton()
         self.add_axes_button.setFlat(True)
@@ -349,8 +361,10 @@ class AxPositioningEditor(QtWidgets.QMainWindow):
             self.axfields.fill()
 
     def delete_axes(self, axeditor):
-        axeditor.deleteLater()
+        self.axfields.clear()
         self.axes.pop(axeditor.name)
+        axeditor.deleteLater()
+        self.axfields.fill(self.axes)
         self.draw()
 
 
@@ -373,12 +387,24 @@ class AxPositionFieldBox(QtWidgets.QGroupBox):
         self.fill()
 
     def clear(self):
+        """
+        clear all content from the position fields
+        refill using .fill(axes) method
+        """
         for i in reversed(range(self.layout.count())):
             w = self.layout.itemAt(i).widget()
             w.setParent(None)
             w.deleteLater()
+        assert self.layout.count() == 0
+        self.axes = OrderedDict()
+        self.axfields = dict()
 
     def fill(self, axes=None):
+        """
+        fill when empty
+        :param axes: list of PositioningAxes objects
+        :return:
+        """
         if axes is not None:
             self.axes = axes
 
@@ -402,6 +428,10 @@ class AddAxesButton(QtWidgets.QPushButton):
 
 
 class AxPositionField(QtWidgets.QWidget):
+
+    """
+    Widget class for editing PositioningAxes fields
+    """
 
     changed = QtCore.pyqtSignal()
     deleted = QtCore.pyqtSignal(object)
@@ -665,8 +695,14 @@ class NewAxesDialog(QtWidgets.QDialog):
         self.accept()
 
 
-
-def open_window(figsize, bounds, **kwargs):
+def position_axes_gui(figsize, bounds, **kwargs):
+    """
+    open gui to set axes positions
+    :param figsize: tuple of width and height
+    :param bounds: list of axes bounds
+    :param kwargs: ...
+    :return: list of new bounds
+    """
     if isinstance(figsize, Figure):
         figsize = figsize.get_size_inches()
     app = QtWidgets.QApplication([])
@@ -675,35 +711,74 @@ def open_window(figsize, bounds, **kwargs):
 
     try:
         app.exec()
-        print(w.pycode_bounds())
+        return w.get_bounds()
     finally:
         w.deleteLater()
+
+
+def position_axes_gui_subprocess(figsize, bounds):
+    """
+    open gui in new subprocess and retrieve the results over stdout
+    :param figsize: figure size
+    :param bounds: list of axes bounds
+    :return: new bounds
+    """
+    cmd = [sys.executable, __file__, '--stream-bounds', '-W', str(figsize[0]), '-H', str(figsize[1])]
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    pickler = pickle.Pickler(p.stdin)
+    pickler.dump(bounds)
+    p.stdin.close()
+    p.wait()
+    out = p.stdout.read()
+
+    newbounds = []
+    for line in out.decode('utf-8').splitlines():
+        if not line:
+            continue
+        newbounds.append([float(v) for v in line.strip().split(',')])
+    return newbounds
 
 
 def adjust_axes(fig, **kwargs):
     axes = fig.get_axes()
     bounds = [a.get_position().bounds for a in axes]
 
-    newbounds = bounds
+    newbounds = position_axes_gui_subprocess((8, 6), bounds)
 
     for a in axes[len(newbounds):]:
         fig.delaxes(a)
 
+    assert len(fig.get_axes()) <= len(newbounds)
+
     for i, bnd in enumerate(newbounds):
         try:
-            axes[i].set_position(bnd)
+            ax = axes[i]
         except IndexError:
-            fig.add_axes(bnd)
+            ax = fig.add_axes(bnd)
+        else:
+            ax.set_position(list(bnd))
 
 
 
 if __name__ == '__main__':
+    """
+    this code is used when calling this script from position_axes_gui_subprocess()
+    """
 
-    w, h = .26, .8
-    bounds = []
-    #     (.08, .10, w, h),
-    #     (.36, .10, w, h),
-    #     (.64, .10, w, h),
-    #     (.92, .10, .02, h)
-    # ]
-    open_window((12, 10), bounds)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--width', '-W', default=12, type=int)
+    parser.add_argument('--height', '-H', default=8, type=int)
+    parser.add_argument('--stream-bounds', dest='stream_bounds', action='store_true')
+
+    kw = vars(parser.parse_args())
+    figsize = kw.pop('width'), kw.pop('height')
+    if kw.pop('stream_bounds', False):
+        bounds = pickle.Unpickler(sys.stdin.buffer).load()
+    else:
+        bounds = []
+
+    bounds = position_axes_gui(figsize, bounds)
+    for bnd in bounds:
+        print(','.join(map(str, bnd)))
+
+
