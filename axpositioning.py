@@ -301,12 +301,13 @@ class AxPositioningEditor(QtWidgets.QMainWindow):
     def add_axes_clicked(self):
         w = NewAxesDialog(self.figure)
         w.show()
-        w.exec_()
+        w.exec()
         data = w.value.copy()
         w.deleteLater()
         self.pointing_axes = data.pop('click', False)
         try:
-            self.add_axes(data['bounds'])
+            for bnd in data['bounds']:
+                self.add_axes(bnd)
         except KeyError:
             pass
 
@@ -467,14 +468,10 @@ class AxPositionField(QtWidgets.QWidget):
 
 class NumField(QtWidgets.QLineEdit):
 
-    valtype = int
-    changed = QtCore.pyqtSignal(valtype)
-    fmt = '{}'
+    changed = QtCore.pyqtSignal(int)
 
-    def __init__(self, v, fmt=None, width=45):
+    def __init__(self, v, width=45):
         super().__init__()
-        if fmt is not None:
-            self.fmt = fmt
         self.val = self.cast(v)
         self.set_value(v)
         self.setFixedWidth(width)
@@ -482,10 +479,10 @@ class NumField(QtWidgets.QLineEdit):
         self.last_valid = self.val
 
     def cast(self, v):
-        return self.valtype(v)
+        return int(v)
 
     def format(self, v):
-        return self.fmt.format(v)
+        return str(v)
 
     def check_change(self):
         """
@@ -503,9 +500,11 @@ class NumField(QtWidgets.QLineEdit):
                 self.val = self.cast(self.text())
             except ValueError:
                 self.set_value(self.last_valid)
-            else:
-                # emit signal when casting was successful
-                self.changed.emit(self.val)
+                raise
+
+            # emit signal when casting was successful
+            self.last_valid = self.val
+            self.changed.emit(self.val)
 
     def value(self):
         """return the value after checking for change"""
@@ -520,16 +519,43 @@ class NumField(QtWidgets.QLineEdit):
 
 class IntField(NumField):
 
-    valtype = int
-    fmt = '{}'
-    changed = QtCore.pyqtSignal(valtype)
+    castfn = int
+    changed = QtCore.pyqtSignal(int)
+
+    def format(self, v):
+        return str(v)
+
+class MultiIntField(IntField):
+
+    changed = QtCore.pyqtSignal(tuple)
+
+    def format(self, v):
+        return ', '.join(map(str, v))
+
+    def cast(self, v):
+        if isinstance(v, tuple):
+            return v
+        elif isinstance(v, str):
+            return tuple(IntField.cast(self, v.strip()) for v in v.split(','))
+        else:
+            raise ValueError('invalid value type {}'.format(type(v)))
 
 
 class FloatField(NumField):
 
-    valtype = float
     fmt = '{:.3f}'
-    changed = QtCore.pyqtSignal(valtype)
+    changed = QtCore.pyqtSignal(float)
+
+    def __init__(self, v, fmt=None, **kw):
+        super().__init__(v, **kw)
+        if fmt is not None:
+            self.fmt = fmt
+
+    def format(self, v):
+        return self.fmt.format(v)
+
+    def cast(self, v):
+        return float(v)
 
 
 class LabeledFloatField(QtWidgets.QWidget):
@@ -564,8 +590,7 @@ class NewAxesDialog(QtWidgets.QDialog):
     FIELD_SPEC = OrderedDict()
     FIELD_SPEC['nrows']  = dict(cls=IntField, value=1)
     FIELD_SPEC['ncols']  = dict(cls=IntField, value=1)
-    FIELD_SPEC['row']    = dict(cls=IntField, value=0)
-    FIELD_SPEC['column'] = dict(cls=IntField, value=0)
+    FIELD_SPEC['index']    = dict(cls=MultiIntField, value=(0,))
     FIELD_SPEC['left']   = dict(cls=FloatField, value=0.1)
     FIELD_SPEC['bottom'] = dict(cls=FloatField, value=0.1)
     FIELD_SPEC['right']  = dict(cls=FloatField, value=0.9)
@@ -613,16 +638,26 @@ class NewAxesDialog(QtWidgets.QDialog):
         for k, f in self.fields.items():
             try:
                 v = f.value()
-            except ValueError:
-                QtWidgets.QErrorMessage().showMessage('Invalid value for {}'.format(k))
+            except ValueError as e:
+                msg = QtWidgets.QMessageBox()
+                msg.setText('Invalid value for {}: {}'.format(k, e))
+                msg.exec()
                 return
             self.FIELD_SPEC[k]['value'] = v
             if k in ('nrows', 'ncols', 'left', 'right', 'top', 'bottom', 'wspace', 'hspace'):
                 data[k] = v
 
         gs = GridSpec(**data)
-        self.value['bounds'] = gs[self.fields['row'].value(),
-                                  self.fields['column'].value()].get_position(self.figure).bounds
+        self.value['bounds'] = []
+
+        I = self.fields['index'].value()
+        if isinstance(I, int):
+            I = (I,)
+        if isinstance(I, tuple):
+            for i in I:
+                self.value['bounds'].append(gs[i].get_position(self.figure).bounds)
+        else:
+            raise TypeError('invalid index type')
         self.accept()
 
 # def _position_axes_window(figsize, bounds, **kwargs):
@@ -655,7 +690,6 @@ def open_window(figsize, bounds, **kwargs):
     try:
         app.exec()
         print(w.pycode_bounds())
-        # sys.stdout.write(pickle.dump(w.get_bounds())+'\n')
     finally:
         w.deleteLater()
 
