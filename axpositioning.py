@@ -6,12 +6,8 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from collections import OrderedDict
 from functools import partial
-import math
-import multiprocessing as mp
 import subprocess as sp
 import os
-import pickle
-import sys
 
 
 class PositioningAxes(Axes):
@@ -670,24 +666,6 @@ class NewAxesDialog(QtWidgets.QDialog):
             raise TypeError('invalid index type')
         self.accept()
 
-# def _position_axes_window(figsize, bounds, **kwargs):
-    # app = QtGui.QApplication([])
-    # w = AxPositioningEditor(Figure(figsize=fig.get_size_inches()), bounds, **kwargs)
-    # w.show()
-
-    # try:
-    #     app.exec()
-    #     print(w.pycode_bounds())
-    #     pipe.send(w.get_bounds())
-    # finally:
-    # w.deleteLater()
-
-
-def _subprocess_open_window(*args, **kwargs):
-    loc, name = os.path.split(__file__)
-    p = sp.Popen(['python', '-m', name, 'window'], cwd=loc)
-    p.communicate(pickle.dump((args, kwargs)))
-    p.wait()
 
 
 def open_window(figsize, bounds, **kwargs):
@@ -707,8 +685,6 @@ def open_window(figsize, bounds, **kwargs):
 def adjust_axes(fig, **kwargs):
     axes = fig.get_axes()
     bounds = [a.get_position().bounds for a in axes]
-
-    _subprocess_open_window(fig.get_size_inches(), bounds, **kwargs)
 
     newbounds = bounds
 
