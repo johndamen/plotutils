@@ -3,7 +3,7 @@ from matplotlib import pyplot as plt
 
 from plotutils import adjust_axes
 
-fig = plt.figure()
+fig = plt.figure(figsize=(6, 6))
 ax = fig.add_subplot(2,2,3)
 x = np.linspace(0, 1, 100)
 ax.plot(x, np.sin(5*x), 'r-')
