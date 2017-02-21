@@ -583,7 +583,7 @@ class AddAxesWidget(QtWidgets.QWidget):
             except ValueError as e:
                 msg = QtWidgets.QMessageBox()
                 msg.setText('Invalid value for {}: {}'.format(k, e))
-                msg.exec()
+                msg.exec_()
                 return
             self.VALUES[k] = v
             if k in ('nrows', 'ncols', 'left', 'right', 'top', 'bottom', 'wspace', 'hspace'):
@@ -606,7 +606,7 @@ class AddAxesWidget(QtWidgets.QWidget):
                 except IndexError as e:
                     msg = QtWidgets.QMessageBox()
                     msg.setText('Invalid grid index: {}'.format(e))
-                    msg.exec()
+                    msg.exec_()
                     return
                 bounds.append(bnd)
         else:
@@ -630,7 +630,7 @@ def position_axes_gui(figsize, bounds, **kwargs):
     w.show()
 
     try:
-        app.exec()
+        app.exec_()
         return w.get_bounds()
     finally:
         w.deleteLater()
@@ -652,7 +652,7 @@ def position_axes_gui_subprocess(figsize, bounds):
     out = p.stdout.read()
 
     newbounds = []
-    for line in out.decode('utf-8').splitlines():
+    for line in out.splitlines():
         if not line:
             continue
         newbounds.append([float(v) for v in line.strip().split(',')])
@@ -694,7 +694,7 @@ if __name__ == '__main__':
     kw = vars(parser.parse_args())
     figsize = kw.pop('width'), kw.pop('height')
     if kw.pop('stream_bounds', False):
-        bounds = pickle.Unpickler(sys.stdin.buffer).load()
+        bounds = pickle.Unpickler(sys.stdin).load()
     else:
         bounds = []
 
