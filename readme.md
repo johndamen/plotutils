@@ -30,7 +30,7 @@ import plotutils
 
 fig = plt.figure()
 ax = fig.add_axes([.1, .1, .8, .8])
-p = plotutils.PositioningAxes.from_axes(fig, ax, anchor='c')
+p = plotutils.PositioningAxes.from_axes(fig, ax, anchor='C')
 
 p.set_anchor('C')
 print(p.x, p.y)
