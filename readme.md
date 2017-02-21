@@ -11,6 +11,9 @@ Correctly positioning axes in matplotlib can be a long and iterative process. Us
 5. Close to update the axes positions of the original figure
 
 ### Examples
+
+Adjust axes using gui in script
+
 ```
 from matplotlib import pyplot as plt
 import plotutils
@@ -23,6 +26,8 @@ plotutils.adjust_axes(fig)
 
 plt.show()
 ```
+
+Adjust axes position using anchors and plotutils.PositioningAxes
 
 ```
 from matplotlib import pyplot as plt
