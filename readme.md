@@ -14,7 +14,7 @@ Correctly positioning axes in matplotlib can be a long and iterative process. Us
 
 Adjust axes using gui in script
 
-```
+```python
 from matplotlib import pyplot as plt
 import plotutils
 
@@ -29,7 +29,7 @@ plt.show()
 
 Adjust axes position using anchors and plotutils.PositioningAxes
 
-```
+```python
 from matplotlib import pyplot as plt
 import plotutils
 
